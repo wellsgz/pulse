@@ -1,0 +1,50 @@
+# Binaries
+pulse
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build output
+/dist/
+/build/
+
+# Data files
+/data/
+*.rrd
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+coverage.out
+coverage.html
+
+# Logs
+*.log
+
+# Local config (keep config.example.yaml)
+config.yaml
+!config.example.yaml
+
+# Debian build artifacts
+*.deb
+*.buildinfo
+*.changes
+debian/.debhelper/
+debian/*.debhelper.log
+debian/*.substvars
+debian/files
+debian/pulse/
+
+# Development reference files
+CLAUDE.md
+.claude/

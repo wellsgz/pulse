@@ -1,0 +1,40 @@
+# Pulse Configuration Example
+# Copy this file to config.yaml and adjust as needed
+
+# API Server configuration
+server:
+  address: ":8080"          # API server bind address
+  enable_tui: true          # Run TUI (false for headless/API-only mode)
+
+# Global probe settings
+global:
+  interval: 10s             # Probe interval
+  timeout: 5s               # Probe timeout
+  pings: 20                 # Number of probes per interval (SmokePing-style burst)
+  data_dir: ./data          # Directory for RRD database files
+
+# Storage retention policy (RRD format)
+# Format: "resolution:duration" - comma separated for multiple archives
+# Examples:
+#   10s:1d   = 10 second resolution, keep 1 day
+#   1m:7d    = 1 minute resolution, keep 7 days
+#   1h:90d   = 1 hour resolution, keep 90 days
+storage:
+  retention: "10s:1d,1m:7d,1h:90d"
+  aggregation: average      # average, min, max, last
+  xff: 0.5                  # xFilesFactor (0.0-1.0)
+
+# Monitoring targets
+targets:
+  - name: "Google DNS"
+    host: "8.8.8.8"
+    probe: icmp
+
+  - name: "Cloudflare"
+    host: "1.1.1.1"
+    probe: icmp
+
+  - name: "Web Server"
+    host: "example.com"
+    port: 443
+    probe: tcp

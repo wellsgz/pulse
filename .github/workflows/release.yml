@@ -1,0 +1,239 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-binaries:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install librrd (for CGO)
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y librrd-dev
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.goos == 'linux' && '1' || '0' }}
+        run: |
+          if [ "${{ matrix.goos }}" = "linux" ] && [ "${{ matrix.goarch }}" = "arm64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+            export CC=aarch64-linux-gnu-gcc
+          fi
+          go build -ldflags="-s -w" -o pulse-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/pulse
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulse-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: pulse-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  build-deb:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y librrd-dev dpkg-dev debhelper
+
+      - name: Install cross-compiler for arm64
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build binary
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 1
+        run: |
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            export CC=aarch64-linux-gnu-gcc
+          fi
+          go build -ldflags="-s -w" -o pulse ./cmd/pulse
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build deb package
+        run: |
+          mkdir -p pkg/usr/bin
+          mkdir -p pkg/etc/pulse
+          mkdir -p pkg/var/lib/pulse
+          mkdir -p pkg/lib/systemd/system
+          mkdir -p pkg/DEBIAN
+
+          cp pulse pkg/usr/bin/
+          chmod 755 pkg/usr/bin/pulse
+
+          cp config.example.yaml pkg/etc/pulse/config.yaml
+
+          cat > pkg/lib/systemd/system/pulse.service << 'EOF'
+          [Unit]
+          Description=Pulse Network Latency Monitor
+          After=network.target
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/bin/pulse daemon
+          Restart=always
+          RestartSec=5
+          User=root
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          cat > pkg/DEBIAN/control << EOF
+          Package: pulse
+          Version: ${{ steps.version.outputs.VERSION }}
+          Section: net
+          Priority: optional
+          Architecture: ${{ matrix.arch }}
+          Depends: librrd8 | librrd4
+          Maintainer: Wells <wells@example.com>
+          Description: Terminal-based network latency monitoring tool
+           A SmokePing-inspired TUI tool for monitoring network latency
+           with real-time visualization and REST/WebSocket API.
+          EOF
+
+          cat > pkg/DEBIAN/postinst << 'EOF'
+          #!/bin/bash
+          set -e
+          systemctl daemon-reload
+          echo "Pulse installed. Edit /etc/pulse/config.yaml and run: systemctl start pulse"
+          EOF
+          chmod 755 pkg/DEBIAN/postinst
+
+          cat > pkg/DEBIAN/prerm << 'EOF'
+          #!/bin/bash
+          set -e
+          systemctl stop pulse 2>/dev/null || true
+          systemctl disable pulse 2>/dev/null || true
+          EOF
+          chmod 755 pkg/DEBIAN/prerm
+
+          dpkg-deb --build pkg pulse_${{ steps.version.outputs.VERSION }}_${{ matrix.arch }}.deb
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulse-deb-${{ matrix.arch }}
+          path: pulse_*.deb
+
+  build-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    needs: [build-binaries, build-deb, build-docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          # Binaries
+          for dir in artifacts/pulse-linux-* artifacts/pulse-darwin-*; do
+            if [ -d "$dir" ]; then
+              name=$(basename "$dir")
+              cp "$dir"/* "release/$name"
+              chmod +x "release/$name"
+            fi
+          done
+          # Deb packages
+          cp artifacts/pulse-deb-*/*.deb release/ || true
+          ls -la release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
