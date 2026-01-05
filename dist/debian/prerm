@@ -1,0 +1,4 @@
+#!/bin/bash
+set -e
+systemctl stop pulse 2>/dev/null || true
+systemctl disable pulse 2>/dev/null || true

@@ -1,0 +1,8 @@
+#!/bin/bash
+set -e
+
+if [ "$1" = "purge" ]; then
+    rm -rf /var/lib/pulse
+    rm -rf /var/run/pulse
+    rm -rf /etc/pulse
+fi

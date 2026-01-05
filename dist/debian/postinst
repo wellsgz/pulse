@@ -1,0 +1,20 @@
+#!/bin/bash
+set -e
+
+# Create directories
+mkdir -p /etc/pulse
+mkdir -p /var/lib/pulse
+mkdir -p /var/run/pulse
+
+# Set permissions
+chmod 755 /var/lib/pulse
+chmod 755 /var/run/pulse
+
+# Reload systemd
+systemctl daemon-reload
+
+echo "Pulse installed successfully."
+echo "  Config: /etc/pulse/config.yaml"
+echo "  Data:   /var/lib/pulse/"
+echo ""
+echo "To start: systemctl enable --now pulse"

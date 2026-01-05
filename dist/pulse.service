@@ -1,0 +1,15 @@
+[Unit]
+Description=Pulse Network Latency Monitor
+Documentation=https://github.com/wellsgz/pulse
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/pulse daemon
+Restart=always
+RestartSec=5
+User=root
+WorkingDirectory=/var/lib/pulse
+
+[Install]
+WantedBy=multi-user.target

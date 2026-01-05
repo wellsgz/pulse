@@ -6,7 +6,6 @@ pulse
 *.dylib
 
 # Build output
-/dist/
 /build/
 
 # Data files

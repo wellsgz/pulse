@@ -104,6 +104,7 @@ jobs:
           mkdir -p pkg/usr/bin
           mkdir -p pkg/etc/pulse
           mkdir -p pkg/var/lib/pulse
+          mkdir -p pkg/var/run/pulse
           mkdir -p pkg/lib/systemd/system
           mkdir -p pkg/DEBIAN
 
@@ -111,22 +112,12 @@ jobs:
           chmod 755 pkg/usr/bin/pulse
 
           cp config.example.yaml pkg/etc/pulse/config.yaml
+          cp dist/pulse.service pkg/lib/systemd/system/
 
-          cat > pkg/lib/systemd/system/pulse.service << 'EOF'
-          [Unit]
-          Description=Pulse Network Latency Monitor
-          After=network.target
-
-          [Service]
-          Type=simple
-          ExecStart=/usr/bin/pulse daemon
-          Restart=always
-          RestartSec=5
-          User=root
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
+          cp dist/debian/postinst pkg/DEBIAN/
+          cp dist/debian/prerm pkg/DEBIAN/
+          cp dist/debian/postrm pkg/DEBIAN/
+          chmod 755 pkg/DEBIAN/postinst pkg/DEBIAN/prerm pkg/DEBIAN/postrm
 
           cat > pkg/DEBIAN/control << EOF
           Package: pulse
@@ -140,22 +131,6 @@ jobs:
            A SmokePing-inspired TUI tool for monitoring network latency
            with real-time visualization and REST/WebSocket API.
           EOF
-
-          cat > pkg/DEBIAN/postinst << 'EOF'
-          #!/bin/bash
-          set -e
-          systemctl daemon-reload
-          echo "Pulse installed. Edit /etc/pulse/config.yaml and run: systemctl start pulse"
-          EOF
-          chmod 755 pkg/DEBIAN/postinst
-
-          cat > pkg/DEBIAN/prerm << 'EOF'
-          #!/bin/bash
-          set -e
-          systemctl stop pulse 2>/dev/null || true
-          systemctl disable pulse 2>/dev/null || true
-          EOF
-          chmod 755 pkg/DEBIAN/prerm
 
           dpkg-deb --build pkg pulse_${{ steps.version.outputs.VERSION }}_${{ matrix.arch }}.deb
 
